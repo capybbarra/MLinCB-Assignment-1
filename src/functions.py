@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
-from sklearn.model_selection import RepeatedKFold
+from sklearn.linear_model import Lasso
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.linear_model import ElasticNet
 from sklearn.metrics import mean_squared_error
@@ -90,6 +90,49 @@ def compute_confidence_interval(metric_scores, alpha=0.05):
     upper = np.percentile(metric_scores, 100 * (1 - alpha/2))
     return lower, upper
 
+def stability_selection(X, y, n_iterations=100, threshold=0.5, alpha=0.1):
+    """
+    Perform stability selection using ElasticNet.
+
+    Parameters:
+        X (np.array): Feature matrix for the development set.
+        y (np.array): Target vector for the development set.
+        n_iterations (int): Number of bootstrap iterations.
+        threshold (float): Minimum selection frequency required for a feature to be selected.
+        alpha (float): Regularization strength for Lasso.
+
+    Returns:
+        stable_features (np.array): Indices of features with selection frequency above threshold.
+        selection_frequency (np.array): Frequency of selection for each feature.
+    """
+    n_samples, n_features = X.shape
+    selected_counts = np.zeros(n_features)
+
+    for i in range(n_iterations):
+        # Bootstrap sample with replacement
+        indices = np.random.choice(n_samples, size=n_samples, replace=True)
+        X_boot = X[indices]
+        y_boot = y[indices]
+        
+        model = Lasso(alpha=alpha, random_state=i)
+        model.fit(X_boot, y_boot)
+        
+        # Increment count for features with non-zero coefficients
+        selected_counts += (np.abs(model.coef_) > 1e-5)
+
+    # Calculate the selection frequency for each feature
+    selection_frequency = selected_counts / n_iterations
+    stable_features = np.where(selection_frequency >= threshold)[0]
+
+    return stable_features, selection_frequency
+
+
+
+
+
+
+
+##########################
 def feature_selection(model, X_train, y_train, X_test, y_test):
     """
     Perform feature selection using ElasticNet's built-in feature importance
