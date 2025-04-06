@@ -12,6 +12,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import cross_val_score, GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectFromModel
+from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 
 def load_data(data_path):
@@ -60,8 +61,8 @@ def bootstrap_evaluate(model, X_test, y_test, n_bootstraps=100, random_state=42)
     
     for i in range(n_bootstraps):
         indices = np.random.choice(n_samples, size=n_samples, replace=True)
-        X_sample = X_test[indices]
-        y_sample = y_test[indices]
+        X_sample = X_test.iloc[indices]
+        y_sample = y_test.iloc[indices]
         
         y_pred = model.predict(X_sample)
         rmse_scores.append(np.sqrt(mean_squared_error(y_sample, y_pred)))
@@ -74,12 +75,12 @@ def bootstrap_evaluate(model, X_test, y_test, n_bootstraps=100, random_state=42)
         'R2': r2_scores
     })
 
-def plot_metrics_boxplot(results_df, save_path=None):
+def plot_metrics_boxplot(results_df, name='Model Performance Metrics Comparison', save_path=None):
     """Create boxplots of metrics for comparison across models."""
     melted = results_df.melt(id_vars='model', var_name='Metric', value_name='Score')
     plt.figure(figsize=(12, 6))
     sns.boxplot(data=melted, x='Metric', y='Score', hue='model')
-    plt.title('Model Performance Metrics Comparison')
+    plt.title(name)
     plt.grid(True)
     if save_path:
         plt.savefig(save_path, bbox_inches='tight')
@@ -90,45 +91,72 @@ def compute_confidence_interval(metric_scores, alpha=0.05):
     upper = np.percentile(metric_scores, 100 * (1 - alpha/2))
     return lower, upper
 
-def stability_selection(X, y, n_iterations=100, threshold=0.5, alpha=0.1):
-    """
-    Perform stability selection using ElasticNet.
 
+
+def elasticnet_feature_selection(X, y, alpha=1.0, l1_ratio=0.5, threshold=None, plot=True):
+    """
+    Perform feature selection using ElasticNet with visualization.
+    
     Parameters:
-        X (np.array): Feature matrix for the development set.
-        y (np.array): Target vector for the development set.
-        n_iterations (int): Number of bootstrap iterations.
-        threshold (float): Minimum selection frequency required for a feature to be selected.
-        alpha (float): Regularization strength for Lasso.
-
+    X (pd.DataFrame): Features DataFrame
+    y (pd.Series): Target variable
+    alpha: Constant that multiplies the penalty terms
+    l1_ratio: Mixing parameter (0 for L2, 1 for L1)
+    threshold: The threshold for feature selection
+    plot: Whether to plot feature coefficients
+    
     Returns:
-        stable_features (np.array): Indices of features with selection frequency above threshold.
-        selection_frequency (np.array): Frequency of selection for each feature.
+    pd.DataFrame: DataFrame with selected features
+    pd.Series: Feature coefficients
     """
-    n_samples, n_features = X.shape
-    selected_counts = np.zeros(n_features)
+    # Initialize ElasticNet
+    enet = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, random_state=42)
+    
+    # Create preprocessing pipeline
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('scaler', StandardScaler(), X.columns)
+        ],
+        remainder='drop'
+    )
+    
+    # Create full pipeline
+    pipeline = Pipeline([
+        ('preprocessor', preprocessor),
+        ('selector', SelectFromModel(enet, threshold=threshold))
+    ])
+    
+    # Fit the pipeline
+    pipeline.fit(X, y)
+    
+    # Get the fitted ElasticNet model from the pipeline
+    fitted_enet = pipeline.named_steps['selector'].estimator_
+    
+    # Get selected feature mask and names
+    selected_mask = pipeline.named_steps['selector'].get_support()
+    selected_features = X.columns[selected_mask]
+    
+    # Transform the data
+    transformed_data = pipeline.transform(X)
 
-    for i in range(n_iterations):
-        # Bootstrap sample with replacement
-        indices = np.random.choice(n_samples, size=n_samples, replace=True)
-        X_boot = X[indices]
-        y_boot = y[indices]
-        
-        model = Lasso(alpha=alpha, random_state=i)
-        model.fit(X_boot, y_boot)
-        
-        # Increment count for features with non-zero coefficients
-        selected_counts += (np.abs(model.coef_) > 1e-5)
-
-    # Calculate the selection frequency for each feature
-    selection_frequency = selected_counts / n_iterations
-    stable_features = np.where(selection_frequency >= threshold)[0]
-
-    return stable_features, selection_frequency
-
-
-
-
+    
+    # Get the coefficients (absolute values for importance)
+    coefficients = pd.Series(np.abs(fitted_enet.coef_), index=X.columns)
+    
+    # Plot coefficients if requested
+    if plot:
+        plt.figure(figsize=(12, 8))
+        coefficients.sort_values(ascending=False).plot(kind='bar')
+        plt.title(f'ElasticNet Coefficients (α={alpha}, L1 ratio={l1_ratio})')
+        plt.ylabel('Absolute Coefficient Value')
+        if threshold:
+            plt.axhline(y=threshold, color='r', linestyle='--', label=f'Threshold: {threshold:.3f}')
+            plt.legend()
+        plt.tight_layout()
+        plt.savefig(f"plots/feature_importances_{l1_ratio}.png")
+        plt.show()
+    
+    return selected_features, coefficients
 
 
 
