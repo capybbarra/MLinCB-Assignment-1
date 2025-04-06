@@ -5,11 +5,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
-from sklearn.linear_model import Lasso
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.linear_model import ElasticNet
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import cross_val_score, GridSearchCV, train_test_split
+from sklearn.model_selection import GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectFromModel
 from sklearn.compose import ColumnTransformer
@@ -159,6 +157,27 @@ def elasticnet_feature_selection(X, y, alpha=1.0, l1_ratio=0.5, threshold=None, 
     return selected_features, coefficients
 
 
+def hyperparameter_tuning_save(model, model_name, param_grid, X_train, y_train, 
+                              cv=5, scoring='neg_root_mean_squared_error',
+                              n_jobs=-1, random_state=42):
+    """
+    Perform hyperparameter tuning with grid search and cross-validation.
+    Saves best model and returns it with validation results.
+    """
+    grid_search = GridSearchCV(
+        estimator=model,
+        param_grid=param_grid,
+        cv=cv,
+        scoring=scoring,
+        refit=True,
+        n_jobs=n_jobs
+    )
+    grid_search.fit(X_train, y_train)
+    
+    # Save best model
+    joblib.dump(grid_search.best_estimator_, f'./models/tuned_{model_name}.joblib')
+    
+    return grid_search.best_estimator_, grid_search.cv_results_
 
 ##########################
 def feature_selection(model, X_train, y_train, X_test, y_test):
