@@ -22,31 +22,32 @@ def load_data(data_path):
 
     return X, y
 
-def scale(X_train, X_test):
-
-    # Standardize features
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    scaler.fit(X_train)
-    X_test_scaled = scaler.transform(X_test)
-
-    return X_train_scaled, X_test_scaled
     
 
-def baseline_model_fit_save(model, model_name, X_train, y_train):
+def baseline_model_fit_save(model, model_name, X_train, y_train, path = "/models", prefix='baseline'):
     """
-    Establish baseline model with all features and default parameters
-    Returns RMSE score and the model
+    Establish baseline model with all features and default parameters.
+    Returns the fitted pipeline with RMSE score and the model.
     """
+    # Create preprocessing pipeline
+    preprocessor = ColumnTransformer(
+        transformers=[('scaler', StandardScaler(), X_train.columns)],
+        remainder='drop'
+    )
 
+    # Create full pipeline
+    pipeline = Pipeline([
+        ('preprocessor', preprocessor),
+        ('model', model)  # Add model as a step in the pipeline
+    ])
     
-    # Train baseline model
-    model.fit(X_train, y_train)
+    # Fit the pipeline
+    pipeline.fit(X_train, y_train)
 
-    # Save model
-    joblib.dump(model, f'./models/baseline_{model_name}.joblib')
+    # Save the entire pipeline (model + preprocessing)
+    joblib.dump(pipeline, f'.{path}/{prefix}_{model_name}.joblib')
     
-    return model
+    return pipeline
 
 
 def bootstrap_evaluate(model, X_test, y_test, n_bootstraps=100, random_state=42):
@@ -175,64 +176,8 @@ def hyperparameter_tuning_save(model, model_name, param_grid, X_train, y_train,
     grid_search.fit(X_train, y_train)
     
     # Save best model
-    joblib.dump(grid_search.best_estimator_, f'./models/tuned_{model_name}.joblib')
+    joblib.dump(grid_search.best_estimator_, f'./final_models/tuned_{model_name}.joblib')
     
     return grid_search.best_estimator_, grid_search.cv_results_
 
-##########################
-def feature_selection(model, X_train, y_train, X_test, y_test):
-    """
-    Perform feature selection using ElasticNet's built-in feature importance
-    Returns selected features and RMSE score
-    """
-    
-    # First train model to get feature importances
-    #trained_model = model.fit(X_train, y_train)
-    
-    # Select features using SelectFromModel
-    selector = SelectFromModel(model, prefit=False)
-    X_train_selected = selector.transform(X_train)
-    
-    # Get selected feature names
-    selected_features = X_train.columns[selector.get_support()]
-    
-    # Train model with selected features
-    model_selected = model.fit(X_train_selected, y_train)
-    
-    return selected_features, model_selected
-
-
-
-def tune_model(X_train, y_train, selected_features):
-    """
-    Perform hyperparameter tuning with cross-validation
-    Returns best model and best parameters
-    """
-    # Filter data to only selected features
-    X_train_selected = X_train[selected_features]
-    
-    # Create pipeline with scaling and model
-    pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('model', ElasticNet(random_state=42))
-    ])
-    
-    # Define parameter grid
-    param_grid = {
-        'model__alpha': [0.001, 0.01, 0.1, 1, 10, 100],
-        'model__l1_ratio': np.linspace(0.1, 0.9, 9)
-    }
-    
-    # Perform grid search with 5-fold CV
-    grid_search = GridSearchCV(
-        pipeline,
-        param_grid,
-        cv=5,
-        scoring='neg_root_mean_squared_error',
-        n_jobs=-1
-    )
-    
-    grid_search.fit(X_train_selected, y_train)
-    
-    return grid_search.best_estimator_, grid_search.best_params_
 
